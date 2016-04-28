@@ -4,7 +4,7 @@
   "description": "Tests for the Mirobot Arduino code",
   "author": "Ben Pirt <ben@pirt.co.uk>",
   "scripts": {
-    "test": "false"
+    "test": "mocha"
   },
   "repository": {
     "type": "git",
@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "serialport": "3.0.0",
-    "mocha": "2.4.5"
+    "mocha": "2.4.5",
+    "should": "8.3.1",
+    "sinon": "1.17.3"
   },
   "private": true,
   "license": "MIT"
