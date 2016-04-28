@@ -1,0 +1,19 @@
+{
+  "name": "mirobot-arduino-tests",
+  "version": "0.0.1",
+  "description": "Tests for the Mirobot Arduino code",
+  "author": "Ben Pirt <ben@pirt.co.uk>",
+  "scripts": {
+    "test": "false"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mirobot/mirobot-arduino-tests"
+  },
+  "dependencies": {
+    "serialport": "3.0.0",
+    "mocha": "2.4.5"
+  },
+  "private": true,
+  "license": "MIT"
+}
