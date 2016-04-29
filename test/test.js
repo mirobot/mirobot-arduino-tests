@@ -22,6 +22,7 @@ var Mirobot = function(port, cb){
   }
   
   this.send = function(str, cb){
+    //console.log(str);
     self.msgs = [];
     self.s.write(str + "\r\n", function(err, bytesWritten) {
       self.cb = cb;
@@ -37,7 +38,7 @@ function validateArg(arg, expected){
       arg.should.have.property(i);
       if(expected[i] instanceof RegExp){
         arg[i].should.match(expected[i]);
-      }else if(expected[i] instanceof String){
+      }else if(typeof expected[i] === 'string'){
         arg[i].should.equal(expected[i]);
         arg[i].should.be.a.String();
       }else if(expected[i] instanceof Number){
@@ -51,10 +52,32 @@ function validateArg(arg, expected){
   }
 }
 
+function validateAcceptAndComplete(spy, done, completeDelay){
+  var accepted = false;
+  setTimeout(function(){
+    accepted = true;
+    sinon.assert.calledOnce(spy);
+    validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
+  }, 50);
+  setTimeout(function(){
+    accepted.should.equal(true);
+    sinon.assert.calledTwice(spy);
+    validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
+    done();
+  }, completeDelay);
+}
+
 describe('Mirobot', function(){
   before(function(done){
     this.timeout(5000);
     m = new Mirobot("/dev/tty.usbserial-FTE3AQ5M", function(){
+      done();
+    });
+  });
+  
+  beforeEach(function(done){
+    m.send('{"cmd":"stop","id":"stopid"}', function(resp){
+      validateArg(resp, {status: 'complete', id: "stopid"});
       done();
     });
   });
@@ -93,7 +116,7 @@ describe('Mirobot', function(){
     setTimeout(function(){
       accepted.should.equal(true);
       sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'error', id: 'bar', msg: "Previous command not finishedx"});
+      validateArg(spy.getCall(1).args[0], {status: 'error', id: 'bar', msg: "Previous command not finished"});
       errored = true;
     }, 100);
     setTimeout(function(){
@@ -147,34 +170,56 @@ describe('Mirobot', function(){
     }, 50);
   });
   
-  it('should pause', function(done){
+  it('should pause and resume', function(done){
     var spy = sinon.spy();
-    m.send('{"cmd":"pause","id":"foo"}', spy);
+    m.send('{"cmd":"forward","arg":"10","id":"moveid"}', spy);
+    var steps = 0
     setTimeout(function(){
+      steps++;
       sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'complete', id: 'foo'});
-      done();
+      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'moveid'});
+      accepted = true;
+      m.send('{"cmd":"pause","id":"boo"}', spy);
     }, 50);
-  });
-  
-  it('should resume', function(done){
-    var spy = sinon.spy();
-    m.send('{"cmd":"resume","id":"foo"}', spy);
     setTimeout(function(){
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'complete', id: 'foo'});
+      steps++;
+      accepted.should.equal(true);
+      sinon.assert.calledTwice(spy);
+      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'boo'});
+      paused = true
+      m.send('{"cmd":"resume","id":"bar"}', spy);
+    }, 400);
+    setTimeout(function(){
+      steps++;
+      accepted.should.equal(true);
+      sinon.assert.calledThrice(spy);
+      validateArg(spy.getCall(2).args[0], {status: 'complete', id: 'bar'});
+    }, 450);
+    setTimeout(function(){
+      steps.should.equal(3);
+      sinon.assert.callCount(spy, 4);
+      validateArg(spy.getCall(3).args[0], {status: 'complete', id: 'moveid'});
       done();
-    }, 50);
+    }, 1000);
   });
   
   it('should stop', function(done){
     var spy = sinon.spy();
-    m.send('{"cmd":"stop","id":"foo"}', spy);
+    m.send('{"cmd":"forward","arg":"10","id":"foo"}', spy);
+    var accepted = false;
     setTimeout(function(){
+      accepted = true;
       sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'complete', id: 'foo'});
-      done();
+      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
+      m.send('{"cmd":"stop","id":"stopid"}', spy);
     }, 50);
+    setTimeout(function(){
+      accepted.should.equal(true);
+      sinon.assert.calledThrice(spy);
+      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'stopid'});
+      validateArg(spy.getCall(2).args[0], {status: 'complete', id: 'foo'});
+      done();
+    }, 100);
   });
   
   it('should send the collide state', function(done){
@@ -204,11 +249,12 @@ describe('Mirobot', function(){
     m.send('{"cmd":"followState","id":"foo"}', spy);
     setTimeout(function(){
       sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'complete', id: 'foo', msg: /-?\d+/});
+      validateArg(spy.getCall(0).args[0], {status: 'complete', id: 'foo', msg: /-?\d+/g});
       done();
     }, 50);
   });
   /*
+  // Difficult to test this without a proper test harness
   it('should enable follow notifications', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"followNotify","id":"foo"}', spy);
@@ -227,120 +273,43 @@ describe('Mirobot', function(){
   it('should move forward', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"forward","arg":"10","id":"foo"}', spy);
-    var accepted = false;
-    setTimeout(function(){
-      accepted = true;
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
-    }, 50);
-    setTimeout(function(){
-      accepted.should.equal(true);
-      sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
-      done();
-    }, 400);
+    validateAcceptAndComplete(spy, done, 400)
   });
   
   it('should move back', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"back","arg":"10","id":"foo"}', spy);
-    var accepted = false;
-    setTimeout(function(){
-      accepted = true;
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
-    }, 50);
-    setTimeout(function(){
-      accepted.should.equal(true);
-      sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
-      done();
-    }, 400);
+    validateAcceptAndComplete(spy, done, 400)
   });
   
   it('should turn right', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"right","arg":"10","id":"foo"}', spy);
-    var accepted = false;
-    setTimeout(function(){
-      accepted = true;
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
-    }, 50);
-    setTimeout(function(){
-      accepted.should.equal(true);
-      sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
-      done();
-    }, 400);
+    validateAcceptAndComplete(spy, done, 400)
   });
   
   it('should turn left', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"left","arg":"10","id":"foo"}', spy);
-    var accepted = false;
-    setTimeout(function(){
-      accepted = true;
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
-    }, 50);
-    setTimeout(function(){
-      accepted.should.equal(true);
-      sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
-      done();
-    }, 400);
+    validateAcceptAndComplete(spy, done, 400)
   });
   
   it('should move the pen up', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"penup","id":"foo"}', spy);
-    var accepted = false;
-    setTimeout(function(){
-      accepted = true;
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
-    }, 50);
-    setTimeout(function(){
-      accepted.should.equal(true);
-      sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
-      done();
-    }, 200);
+    validateAcceptAndComplete(spy, done, 200)
   });
   
   it('should move the pen down', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"pendown","id":"foo"}', spy);
-    var accepted = false;
-    setTimeout(function(){
-      accepted = true;
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
-    }, 50);
-    setTimeout(function(){
-      accepted.should.equal(true);
-      sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
-      done();
-    }, 200);
+    validateAcceptAndComplete(spy, done, 200)
   });
   
   it('should beep', function(done){
     var spy = sinon.spy();
     m.send('{"cmd":"beep","arg":"100","id":"foo"}', spy);
-    var accepted = false;
-    setTimeout(function(){
-      accepted = true;
-      sinon.assert.calledOnce(spy);
-      validateArg(spy.getCall(0).args[0], {status: 'accepted', id: 'foo'});
-    }, 50);
-    setTimeout(function(){
-      accepted.should.equal(true);
-      sinon.assert.calledTwice(spy);
-      validateArg(spy.getCall(1).args[0], {status: 'complete', id: 'foo'});
-      done();
-    }, 150);
+    validateAcceptAndComplete(spy, done, 150)
   });
   
 });
